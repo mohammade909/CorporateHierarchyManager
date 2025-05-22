@@ -1,0 +1,63 @@
+Application Overview
+Create a comprehensive corporate hierarchy management system with integrated communication features. The application should implement a multi-tiered access structure (Super Admin → Company Admin → Manager → Employee) with role-specific permissions and communication capabilities.
+Key Features
+User Hierarchy & Management
+
+Super Admin can create and manage multiple company profiles
+Super Admin can assign Company Admins to each company
+Company Admins can add/remove/edit Managers and Employees
+Managers have limited administrative capabilities over their assigned Employees
+
+Communication System
+
+Integrated text messaging throughout the platform
+Voice messaging capabilities for all users
+Company Admins can communicate with any employee or manager in their company
+Managers can communicate with their assigned employees and Company Admin
+Employees can only communicate with their assigned Manager and Company Admin
+
+Zoom Integration
+
+Implement Zoom SDK for video conferencing capabilities
+Allow scheduling and joining meetings directly from the application
+Enable screen sharing and collaborative features
+Provide recording capabilities for meetings (accessible based on permission level)
+
+Dashboard & Reporting
+
+Custom dashboards for each user type showing relevant information
+Company Admins can view company-wide statistics and communication logs
+Managers can see team performance metrics and communication history
+Employees have a simplified view showing their assignments and communications
+
+Security & Privacy
+
+End-to-end encryption for all communications
+Role-based access controls for different features
+Audit logs for administrative actions
+Compliance with data protection regulations
+
+Technical Requirements
+
+Implement user authentication and authorization with JWT or similar
+Use secure WebSocket connections for real-time messaging
+Integrate Zoom SDK following their official documentation
+Support for mobile and desktop platforms
+Implement proper database design to handle the hierarchical structure
+Include notification system for new messages and meeting invites
+
+User Experience Considerations
+
+Intuitive, modern interface that clearly indicates the user's role
+Seamless switching between text, voice messaging, and video conferencing
+Clear visual representation of the organizational hierarchy
+Responsive design for various screen sizes
+Accessibility compliance
+
+Deployment & Scalability
+
+Cloud-based architecture to support growing number of companies and users
+Horizontal scaling capabilities to handle increased communication traffic
+Efficient data storage and retrieval mechanisms
+Automated backup systems
+RetryClaude can make mistakes. Please double-check responses.
