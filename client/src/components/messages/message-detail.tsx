@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,10 +14,30 @@ import {
 import VoiceRecorder from "@/components/messages/voice-recorder";
 import { formatDistanceToNow } from "date-fns";
 
+// Type definitions
+interface Message {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  content: string;
+  type: 'text' | 'voice';
+  isRead: boolean;
+  createdAt: string;
+}
+
+interface User {
+  id: number;
+  firstName: string;
+  lastName: string;
+  role: 'super_admin' | 'company_admin' | 'manager' | 'employee';
+  companyId: number;
+  managerId?: number;
+}
+
 interface MessageDetailProps {
-  conversation: any[];
-  selectedUser: any;
-  currentUser: any;
+  conversation: Message[];
+  selectedUser: User | null;
+  currentUser: User | null;
   onSendMessage: (content: string, type: "text" | "voice") => void;
   isLoading: boolean;
 }
@@ -34,12 +54,19 @@ export default function MessageDetail({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom when conversation changes
+  // Memoize conversation length to prevent unnecessary re-renders
+  const conversationLength = useMemo(() => conversation.length, [conversation]);
+  const lastMessageId = useMemo(() => 
+    conversation.length > 0 ? conversation[conversation.length - 1].id : null, 
+    [conversation]
+  );
+
+  // Scroll to bottom when new messages are added
   useEffect(() => {
-    if (messagesEndRef.current) {
+    if (messagesEndRef.current && conversationLength > 0) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [conversation]);
+  }, [conversationLength, lastMessageId]);
 
   const handleSendMessage = () => {
     if (message.trim()) {
@@ -79,8 +106,14 @@ export default function MessageDetail({
 
   // Function to play voice message
   const playVoiceMessage = (content: string) => {
-    const audio = new Audio(`data:audio/webm;base64,${content}`);
-    audio.play();
+    try {
+      const audio = new Audio(`data:audio/webm;base64,${content}`);
+      audio.play().catch((error) => {
+        console.error("Error playing audio:", error);
+      });
+    } catch (error) {
+      console.error("Error creating audio element:", error);
+    }
   };
 
   if (!selectedUser) {
@@ -121,7 +154,7 @@ export default function MessageDetail({
               No messages yet. Start the conversation!
             </div>
           ) : (
-            conversation.map((msg) => {
+            conversation.map((msg: Message) => {
               const isSentByMe = msg.senderId === currentUser?.id;
               
               return (

@@ -45,6 +45,9 @@ export default function UserManagement() {
     queryKey: ['/api/users', user?.companyId],
     enabled: !!user,
   });
+  
+
+  
 
   // Fetch companies for super admin
   const { data: companies = [] } = useQuery<Company[]>({

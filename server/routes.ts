@@ -150,7 +150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User CRUD
-  app.get("/api/users", authenticateJwt, authorize(['super_admin', 'company_admin']), async (req, res) => {
+  app.get("/api/users", authenticateJwt, authorize(['super_admin', 'company_admin', 'employee']), async (req, res) => {
     try {
       let users;
       
@@ -702,6 +702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/meetings", authenticateJwt, async (req, res) => {
     try {
+      console.log(req.body)
       const validatedData = insertMeetingSchema.parse({
         ...req.body,
         organizerId: req.user!.userId,

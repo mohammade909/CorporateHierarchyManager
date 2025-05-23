@@ -211,6 +211,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMeeting(insertMeeting: InsertMeeting): Promise<Meeting> {
+    console.log(insertMeeting)
     const [meeting] = await db.insert(meetings).values(insertMeeting).returning();
     return meeting;
   }

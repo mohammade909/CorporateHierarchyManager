@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useWebSocket } from "@/lib/websocket";
@@ -8,80 +8,137 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 
+// Type definitions
+interface User {
+  id: number;
+  firstName: string;
+  lastName: string;
+  role: 'super_admin' | 'company_admin' | 'manager' | 'employee';
+  companyId: number;
+  managerId?: number;
+}
+
+interface Message {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  content: string;
+  type: 'text' | 'voice';
+  isRead: boolean;
+  createdAt: string;
+}
+
+interface Conversation {
+  id: number;
+  name: string;
+  role: string;
+  lastMessage: Message;
+  unreadCount: number;
+}
+
 export default function Messages() {
   const { user } = useAuth();
   const { sendMessage } = useWebSocket();
   const { toast } = useToast();
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
 
   // Fetch all users that the current user can communicate with
-  const { data: allUsers = [], isLoading: isLoadingUsers } = useQuery({
+  const { data: allUsersData, isLoading: isLoadingUsers } = useQuery({
     queryKey: ['/api/users'],
     enabled: !!user,
   });
 
-  // Filter users based on communication permissions
-  const availableUsers = allUsers.filter((otherUser: any) => {
-    // Don't include self
-    if (otherUser.id === user?.id) return false;
+  // Type guard and safe casting for allUsers
+  const allUsers: User[] = Array.isArray(allUsersData) ? allUsersData as User[] : [];
 
-    // Check permissions based on role
-    if (user?.role === 'super_admin') return true;
+  // Memoize expensive computations
+  const availableUsers = useMemo(() => {
+    return allUsers.filter((otherUser: User) => {
+      // Don't include self
+      if (otherUser.id === user?.id) return false;
 
-    // Users must be in the same company
-    if (otherUser.companyId !== user?.companyId) return false;
+      // Check permissions based on role
+      if (user?.role === 'super_admin') return true;
 
-    // Company admin can communicate with anyone in their company
-    if (user?.role === 'company_admin') return true;
+      // Users must be in the same company
+      if (otherUser.companyId !== user?.companyId) return false;
 
-    // Manager can communicate with their assigned employees and company admin
-    if (user?.role === 'manager') {
-      return otherUser.role === 'company_admin' || 
-             (otherUser.role === 'employee' && otherUser.managerId === user.id);
-    }
+      // Company admin can communicate with anyone in their company
+      if (user?.role === 'company_admin') return true;
 
-    // Employee can communicate with their manager and company admin
-    if (user?.role === 'employee') {
-      return otherUser.role === 'company_admin' || 
-             (otherUser.role === 'manager' && user.managerId === otherUser.id);
-    }
+      // Manager can communicate with their assigned employees and company admin
+      if (user?.role === 'manager') {
+        return otherUser.role === 'company_admin' || 
+               (otherUser.role === 'employee' && otherUser.managerId === user.id);
+      }
 
-    return false;
-  });
+      // Employee can communicate with their manager and company admin
+      if (user?.role === 'employee') {
+        return otherUser.role === 'company_admin' || 
+               (otherUser.role === 'manager' && user.managerId === otherUser.id);
+      }
+
+      return false;
+    });
+  }, [allUsers, user]);
+
+  // Memoize selected user to prevent unnecessary re-renders
+  const selectedUser = useMemo(() => {
+    return allUsers.find((u: User) => u.id === selectedUserId) || null;
+  }, [allUsers, selectedUserId]);
 
   // Fetch messages for current user
-  const { data: messages = [], isLoading: isLoadingMessages } = useQuery({
+  const { data: messagesData, isLoading: isLoadingMessages } = useQuery({
     queryKey: ['/api/messages'],
     enabled: !!user,
   });
 
-  // Fetch conversation with selected user
-  const { data: conversation = [], isLoading: isLoadingConversation, refetch: refetchConversation } = useQuery({
-    queryKey: ['/api/messages/conversation', selectedUserId],
-    enabled: !!selectedUserId,
-  });
+  // Type guard and safe casting for messages
+  const messages: Message[] = Array.isArray(messagesData) ? messagesData as Message[] : [];
 
-  // Group messages by conversation
-  useEffect(() => {
-    if (messages.length > 0 && availableUsers.length > 0) {
-      const conversationMap = new Map();
+  // Filter messages to get conversation with selected user
+  const conversation: Message[] = useMemo(() => {
+    if (!selectedUserId || !user) return [];
+    
+    return messages
+      .filter((message: Message) => 
+        (message.senderId === user.id && message.receiverId === selectedUserId) ||
+        (message.senderId === selectedUserId && message.receiverId === user.id)
+      )
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [messages, selectedUserId, user]);
+
+  const isLoadingConversation = isLoadingMessages;
+
+  // Create combined list: existing conversations + available users to start new conversations
+  const combinedConversations = useMemo(() => {
+    const conversationMap = new Map<number, Conversation>();
+    
+    // First, create conversations from existing messages
+    if (messages.length > 0 && allUsers.length > 0 && user) {
+      console.log("Building conversations from messages:", messages);
       
-      messages.forEach((message: any) => {
-        const otherUserId = message.senderId === user?.id ? message.receiverId : message.senderId;
-        const otherUser = availableUsers.find((u: any) => u.id === otherUserId);
+      messages.forEach((message: Message) => {
+        // Determine the other user in the conversation
+        const otherUserId = message.senderId === user.id ? message.receiverId : message.senderId;
+        
+        // Find the other user in ALL users
+        const otherUser = allUsers.find((u: User) => u.id === otherUserId);
         
         if (otherUser) {
           if (!conversationMap.has(otherUser.id)) {
+            // Create new conversation
             conversationMap.set(otherUser.id, {
               id: otherUser.id,
               name: `${otherUser.firstName} ${otherUser.lastName}`,
               role: otherUser.role,
               lastMessage: message,
-              unreadCount: message.receiverId === user?.id && !message.isRead ? 1 : 0,
+              unreadCount: message.receiverId === user.id && !message.isRead ? 1 : 0,
             });
           } else {
-            const conv = conversationMap.get(otherUser.id);
+            // Update existing conversation
+            const conv = conversationMap.get(otherUser.id)!;
             
             // Check if this message is newer than the last one
             if (new Date(message.createdAt) > new Date(conv.lastMessage.createdAt)) {
@@ -89,23 +146,62 @@ export default function Messages() {
             }
             
             // Count unread messages
-            if (message.receiverId === user?.id && !message.isRead) {
+            if (message.receiverId === user.id && !message.isRead) {
               conv.unreadCount += 1;
             }
           }
         }
       });
-      
-      // Convert to array and sort by last message date
-      const sortedConversations = Array.from(conversationMap.values()).sort((a, b) => {
-        return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
-      });
-      
-      setConversations(sortedConversations);
     }
-  }, [messages, availableUsers, user]);
+    
+    // Then, add available users who don't have existing conversations
+    availableUsers.forEach((availableUser: User) => {
+      if (!conversationMap.has(availableUser.id)) {
+        conversationMap.set(availableUser.id, {
+          id: availableUser.id,
+          name: `${availableUser.firstName} ${availableUser.lastName}`,
+          role: availableUser.role,
+          lastMessage: {
+            id: -1, // Temporary ID for placeholder
+            senderId: -1,
+            receiverId: -1,
+            content: "Start a conversation...",
+            type: 'text',
+            isRead: true,
+            createdAt: new Date(0).toISOString(), // Very old date so it appears at bottom
+          },
+          unreadCount: 0,
+        });
+      }
+    });
+    
+    // Convert to array and sort: conversations with messages first, then available users
+    const sortedConversations = Array.from(conversationMap.values()).sort((a, b) => {
+      // If both have real messages, sort by date
+      if (a.lastMessage.id !== -1 && b.lastMessage.id !== -1) {
+        return new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime();
+      }
+      // If one has messages and other doesn't, prioritize the one with messages
+      if (a.lastMessage.id !== -1 && b.lastMessage.id === -1) {
+        return -1;
+      }
+      if (a.lastMessage.id === -1 && b.lastMessage.id !== -1) {
+        return 1;
+      }
+      // If both are available users without messages, sort alphabetically
+      return a.name.localeCompare(b.name);
+    });
+    
+    console.log("Combined conversations:", sortedConversations);
+    return sortedConversations;
+  }, [messages, allUsers, availableUsers, user]);
 
-  const handleSendMessage = async (content: string, type: "text" | "voice") => {
+  // Update conversations state when combined conversations change
+  useEffect(() => {
+    setConversations(combinedConversations);
+  }, [combinedConversations]);
+
+  const handleSendMessage = useCallback(async (content: string, type: "text" | "voice") => {
     if (!selectedUserId) {
       toast({
         title: "Error",
@@ -117,10 +213,8 @@ export default function Messages() {
 
     try {
       sendMessage(selectedUserId, content, type);
-      // Refetch conversation to get the new message
-      setTimeout(() => {
-        refetchConversation();
-      }, 500);
+      // Note: The conversation will automatically update when the messages are refetched
+      // since we're now filtering from the main messages array
     } catch (error) {
       console.error("Failed to send message:", error);
       toast({
@@ -129,11 +223,11 @@ export default function Messages() {
         variant: "destructive",
       });
     }
-  };
+  }, [selectedUserId, sendMessage, toast]);
 
-  const handleSelectUser = (userId: number) => {
+  const handleSelectUser = useCallback((userId: number) => {
     setSelectedUserId(userId);
-  };
+  }, []);
 
   if (isLoadingUsers) {
     return (
@@ -143,6 +237,8 @@ export default function Messages() {
     );
   }
 
+  console.log("Current conversations state:", conversations);
+  
   return (
     <div>
       <div className="mb-6">
@@ -171,7 +267,7 @@ export default function Messages() {
             <CardContent className="p-0 h-full">
               <MessageDetail
                 conversation={conversation}
-                selectedUser={availableUsers.find((u: any) => u.id === selectedUserId)}
+                selectedUser={selectedUser}
                 currentUser={user}
                 onSendMessage={handleSendMessage}
                 isLoading={isLoadingConversation}
