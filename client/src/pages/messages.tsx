@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useWebSocket } from "@/lib/websocket";
 import MessageList from "@/components/messages/message-list";
@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 
 // Type definitions
-interface User {
+export interface User {
   id: number;
   firstName: string;
   lastName: string;
@@ -38,10 +38,10 @@ interface Conversation {
 
 export default function Messages() {
   const { user } = useAuth();
-  const { sendMessage } = useWebSocket();
+  const { sendMessage, lastMessage } = useWebSocket(); // Assuming useWebSocket returns lastMessage
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
 
   // Fetch all users that the current user can communicate with
   const { data: allUsersData, isLoading: isLoadingUsers } = useQuery({
@@ -49,32 +49,70 @@ export default function Messages() {
     enabled: !!user,
   });
 
-  // Type guard and safe casting for allUsers
-  const allUsers: User[] = Array.isArray(allUsersData) ? allUsersData as User[] : [];
+  // Fetch messages for current user
+  const { data: messagesData, isLoading: isLoadingMessages, refetch: refetchMessages } = useQuery({
+    queryKey: ['/api/messages'],
+    enabled: !!user,
+    // Add refetch options for real-time updates
+    refetchInterval: 30000, // Refetch every 30 seconds as fallback
+    refetchOnWindowFocus: true,
+  });
 
-  // Memoize expensive computations
+  // Listen for WebSocket messages and update the query cache
+  useEffect(() => {
+    if (lastMessage) {
+      // Invalidate and refetch messages query
+      queryClient.invalidateQueries({ queryKey: ['/api/messages'] });
+    }
+  }, [lastMessage, queryClient]);
+
+  // Alternative: Optimistically update the cache
+  const updateMessagesCache = useCallback((newMessage: Message) => {
+    queryClient.setQueryData(['/api/messages'], (oldData: Message[] | undefined) => {
+      if (!oldData) return [newMessage];
+      
+      // Check if message already exists (to prevent duplicates)
+      const exists = oldData.some(msg => msg.id === newMessage.id);
+      if (exists) return oldData;
+      
+      return [...oldData, newMessage];
+    });
+  }, [queryClient]);
+
+  // Type guard and safe casting with stability
+  const allUsers: User[] = useMemo(() => {
+    return Array.isArray(allUsersData) ? allUsersData as User[] : [];
+  }, [allUsersData]);
+
+  const messages: Message[] = useMemo(() => {
+    return Array.isArray(messagesData) ? messagesData as Message[] : [];
+  }, [messagesData]);
+
+  // Memoize expensive computations with stable dependencies
   const availableUsers = useMemo(() => {
+    if (!user || allUsers.length === 0) return [];
+    
     return allUsers.filter((otherUser: User) => {
       // Don't include self
-      if (otherUser.id === user?.id) return false;
+      if (otherUser.id === user.id) return false;
 
       // Check permissions based on role
-      if (user?.role === 'super_admin') return true;
+      if (user.role === 'super_admin') return true;
 
       // Users must be in the same company
-      if (otherUser.companyId !== user?.companyId) return false;
+      if (otherUser.companyId !== user.companyId) return false;
 
       // Company admin can communicate with anyone in their company
-      if (user?.role === 'company_admin') return true;
+      if (user.role === 'company_admin') return true;
 
       // Manager can communicate with their assigned employees and company admin
-      if (user?.role === 'manager') {
+      if (user.role === 'manager') {
         return otherUser.role === 'company_admin' || 
                (otherUser.role === 'employee' && otherUser.managerId === user.id);
       }
 
       // Employee can communicate with their manager and company admin
-      if (user?.role === 'employee') {
+      if (user.role === 'employee') {
         return otherUser.role === 'company_admin' || 
                (otherUser.role === 'manager' && user.managerId === otherUser.id);
       }
@@ -88,18 +126,9 @@ export default function Messages() {
     return allUsers.find((u: User) => u.id === selectedUserId) || null;
   }, [allUsers, selectedUserId]);
 
-  // Fetch messages for current user
-  const { data: messagesData, isLoading: isLoadingMessages } = useQuery({
-    queryKey: ['/api/messages'],
-    enabled: !!user,
-  });
-
-  // Type guard and safe casting for messages
-  const messages: Message[] = Array.isArray(messagesData) ? messagesData as Message[] : [];
-
   // Filter messages to get conversation with selected user
   const conversation: Message[] = useMemo(() => {
-    if (!selectedUserId || !user) return [];
+    if (!selectedUserId || !user || messages.length === 0) return [];
     
     return messages
       .filter((message: Message) => 
@@ -109,15 +138,19 @@ export default function Messages() {
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [messages, selectedUserId, user]);
 
-  const isLoadingConversation = isLoadingMessages;
-
-  // Create combined list: existing conversations + available users to start new conversations
-  const combinedConversations = useMemo(() => {
+  // Create stable conversations list
+  const conversations = useMemo(() => {
     const conversationMap = new Map<number, Conversation>();
     
+    // Early return if no data
+    if (!user || allUsers.length === 0) {
+      console.log("No user or allUsers data yet");
+      return [];
+    }
+    
     // First, create conversations from existing messages
-    if (messages.length > 0 && allUsers.length > 0 && user) {
-      console.log("Building conversations from messages:", messages);
+    if (messages.length > 0) {
+      console.log("Building conversations from messages:", messages.length);
       
       messages.forEach((message: Message) => {
         // Determine the other user in the conversation
@@ -155,25 +188,27 @@ export default function Messages() {
     }
     
     // Then, add available users who don't have existing conversations
-    availableUsers.forEach((availableUser: User) => {
-      if (!conversationMap.has(availableUser.id)) {
-        conversationMap.set(availableUser.id, {
-          id: availableUser.id,
-          name: `${availableUser.firstName} ${availableUser.lastName}`,
-          role: availableUser.role,
-          lastMessage: {
-            id: -1, // Temporary ID for placeholder
-            senderId: -1,
-            receiverId: -1,
-            content: "Start a conversation...",
-            type: 'text',
-            isRead: true,
-            createdAt: new Date(0).toISOString(), // Very old date so it appears at bottom
-          },
-          unreadCount: 0,
-        });
-      }
-    });
+    if (availableUsers.length > 0) {
+      availableUsers.forEach((availableUser: User) => {
+        if (!conversationMap.has(availableUser.id)) {
+          conversationMap.set(availableUser.id, {
+            id: availableUser.id,
+            name: `${availableUser.firstName} ${availableUser.lastName}`,
+            role: availableUser.role,
+            lastMessage: {
+              id: -1, // Temporary ID for placeholder
+              senderId: -1,
+              receiverId: -1,
+              content: "Start a conversation...",
+              type: 'text',
+              isRead: true,
+              createdAt: new Date(0).toISOString(), // Very old date so it appears at bottom
+            },
+            unreadCount: 0,
+          });
+        }
+      });
+    }
     
     // Convert to array and sort: conversations with messages first, then available users
     const sortedConversations = Array.from(conversationMap.values()).sort((a, b) => {
@@ -192,14 +227,9 @@ export default function Messages() {
       return a.name.localeCompare(b.name);
     });
     
-    console.log("Combined conversations:", sortedConversations);
+    console.log("Combined conversations:", sortedConversations.length);
     return sortedConversations;
   }, [messages, allUsers, availableUsers, user]);
-
-  // Update conversations state when combined conversations change
-  useEffect(() => {
-    setConversations(combinedConversations);
-  }, [combinedConversations]);
 
   const handleSendMessage = useCallback(async (content: string, type: "text" | "voice") => {
     if (!selectedUserId) {
@@ -212,9 +242,23 @@ export default function Messages() {
     }
 
     try {
-      sendMessage(selectedUserId, content, type);
-      // Note: The conversation will automatically update when the messages are refetched
-      // since we're now filtering from the main messages array
+      await sendMessage(selectedUserId, content, type);
+      
+      // Option 1: Immediately refetch messages
+      refetchMessages();
+      
+      // Option 2: Or optimistically update with a temporary message
+      // const tempMessage: Message = {
+      //   id: Date.now(), // Temporary ID
+      //   senderId: user!.id,
+      //   receiverId: selectedUserId,
+      //   content,
+      //   type,
+      //   isRead: false,
+      //   createdAt: new Date().toISOString(),
+      // };
+      // updateMessagesCache(tempMessage);
+      
     } catch (error) {
       console.error("Failed to send message:", error);
       toast({
@@ -223,7 +267,7 @@ export default function Messages() {
         variant: "destructive",
       });
     }
-  }, [selectedUserId, sendMessage, toast]);
+  }, [selectedUserId, sendMessage, toast, refetchMessages]);
 
   const handleSelectUser = useCallback((userId: number) => {
     setSelectedUserId(userId);
@@ -237,7 +281,6 @@ export default function Messages() {
     );
   }
 
-  console.log("Current conversations state:", conversations);
   
   return (
     <div>
@@ -270,7 +313,7 @@ export default function Messages() {
                 selectedUser={selectedUser}
                 currentUser={user}
                 onSendMessage={handleSendMessage}
-                isLoading={isLoadingConversation}
+                isLoading={isLoadingMessages}
               />
             </CardContent>
           </Card>

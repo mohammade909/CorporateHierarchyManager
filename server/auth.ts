@@ -67,7 +67,7 @@ export function authenticateJwt(req: Request, res: Response, next: NextFunction)
   
   try {
     const payload = verifyToken(token);
-    req.user = payload;
+    (req as any).user = payload;
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid token' });
@@ -77,11 +77,11 @@ export function authenticateJwt(req: Request, res: Response, next: NextFunction)
 // Role-based authorization middleware
 export function authorize(allowedRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) {
+    if (!(req as any).user) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
     
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!allowedRoles.includes((req as any).user.role)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
     

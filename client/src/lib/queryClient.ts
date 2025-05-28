@@ -6,6 +6,12 @@ async function throwIfResNotOk(res: Response) {
     throw new Error(`${res.status}: ${text}`);
   }
 }
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
 
 export async function apiRequest(
   method: string,
@@ -102,3 +108,29 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+
+export const uploadFile = async (
+  endpoint: string,
+  formData: FormData,
+  headers?: Record<string, string>
+): Promise<Response> => {
+  const url = `${API_BASE_URL}${endpoint}`;
+  
+  const config: RequestInit = {
+    method: 'POST',
+    headers: {
+      ...headers,
+    },
+    body: formData,
+  };
+
+  const response = await fetch(url, config);
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return response;
+};

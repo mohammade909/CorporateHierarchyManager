@@ -15,27 +15,32 @@ import OrganizationChart from "@/pages/organization-chart";
 import AppLayout from "@/components/layout/app-layout";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { WebSocketProvider } from "./lib/websocket";
+import { ChatPage } from "./pages/ChatPage";
 
 function PrivateRoute({ component: Component, ...rest }: any) {
   const { user, isLoading } = useAuth();
-  
+
   if (isLoading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        Loading...
+      </div>
+    );
   }
-  
+
   if (!user) {
     // Redirect to login if not authenticated
     window.location.href = "/login";
     return null;
   }
-  
+
   return <Component {...rest} />;
 }
 
 function Router() {
   return (
     <Switch>
-      <Route path="/login" component={Login}/>
+      <Route path="/login" component={Login} />
       <Route path="/">
         <AppLayout>
           <PrivateRoute component={Dashboard} />
@@ -59,6 +64,11 @@ function Router() {
       <Route path="/messages">
         <AppLayout>
           <PrivateRoute component={Messages} />
+        </AppLayout>
+      </Route>
+      <Route path="/chat">
+        <AppLayout>
+          <PrivateRoute component={ChatPage} />
         </AppLayout>
       </Route>
       <Route path="/meetings">

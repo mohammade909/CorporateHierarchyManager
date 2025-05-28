@@ -129,6 +129,12 @@ function getNavigationItems(role: string) {
       badge: "messages",
     },
     {
+      path: "/chat",
+      label: "Chat",
+      icon: <MessageSquare className="h-5 w-5" />,
+      badge: "messages",
+    },
+    {
       path: "/meetings",
       label: "Meetings",
       icon: <Video className="h-5 w-5" />,

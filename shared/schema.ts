@@ -1,6 +1,6 @@
-import { pgTable, text, serial, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial,bigint, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { string, z } from "zod";
 import { relations } from "drizzle-orm";
 
 // Enums
@@ -29,9 +29,22 @@ export const users = pgTable("users", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   role: userRoleEnum("role").notNull(),
+  
+  // Zoom integration fields - using proper PostgreSQL types
+  zoomUserId: text('zoom_user_id'),
+  zoomEmail: text('zoom_email'),
+  zoomPmi: text('zoom_pmi'), // Changed from text to bigint
+  zoomCreatedAt: timestamp('zoom_created_at'),
+  zoomIntegrationPending: boolean('zoom_integration_pending').default(false),
+  zoomIntegrationError: text('zoom_integration_error'), // Changed from varchar to text
+  
+  // Foreign key references
   companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
   managerId: integer("manager_id").references(() => users.id),
+  
+  // Timestamps
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const messages = pgTable("messages", {

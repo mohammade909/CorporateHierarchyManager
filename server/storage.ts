@@ -1,8 +1,19 @@
-import { 
-  users, companies, messages, meetings, meetingParticipants,
-  type User, type InsertUser, type Company, type InsertCompany,
-  type Message, type InsertMessage, type Meeting, type InsertMeeting,
-  type MeetingParticipant, type InsertMeetingParticipant
+import {
+  users,
+  companies,
+  messages,
+  meetings,
+  meetingParticipants,
+  type User,
+  type InsertUser,
+  type Company,
+  type InsertCompany,
+  type Message,
+  type InsertMessage,
+  type Meeting,
+  type InsertMeeting,
+  type MeetingParticipant,
+  type InsertMeetingParticipant,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, desc, asc, sql, inArray } from "drizzle-orm";
@@ -13,18 +24,31 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUser(id: number, userData: Partial<Omit<InsertUser, "password">>): Promise<User | undefined>;
+  updateUser(
+    id: number,
+    userData: Partial<Omit<InsertUser, "password">>
+  ): Promise<User | undefined>;
   deleteUser(id: number): Promise<boolean>;
   getUsersByCompany(companyId: number): Promise<User[]>;
   getUsersByManager(managerId: number): Promise<User[]>;
-  
+
   // Company methods
   getCompany(id: number): Promise<Company | undefined>;
   getCompanies(): Promise<Company[]>;
   createCompany(company: InsertCompany): Promise<Company>;
-  updateCompany(id: number, companyData: Partial<InsertCompany>): Promise<Company | undefined>;
+  updateCompany(
+    id: number,
+    companyData: Partial<InsertCompany>
+  ): Promise<Company | undefined>;
   deleteCompany(id: number): Promise<boolean>;
-  
+
+  // createMessage(messageData: {
+  //   fromUserId: string;
+  //   toUserId: string;
+  //   message: string;
+  //   platform: string;
+  //   sentAt: Date;
+  // }): Promise<{ id: string }>;
   // Message methods
   getMessage(id: number): Promise<Message | undefined>;
   getMessagesBetweenUsers(user1Id: number, user2Id: number): Promise<Message[]>;
@@ -32,17 +56,22 @@ export interface IStorage {
   createMessage(message: InsertMessage): Promise<Message>;
   markMessageAsRead(id: number): Promise<boolean>;
   deleteMessage(id: number): Promise<boolean>;
-  
+
   // Meeting methods
   getMeeting(id: number): Promise<Meeting | undefined>;
   getMeetingsByCompany(companyId: number): Promise<Meeting[]>;
   getMeetingsByUser(userId: number): Promise<Meeting[]>;
   createMeeting(meeting: InsertMeeting): Promise<Meeting>;
-  updateMeeting(id: number, meetingData: Partial<InsertMeeting>): Promise<Meeting | undefined>;
+  updateMeeting(
+    id: number,
+    meetingData: Partial<InsertMeeting>
+  ): Promise<Meeting | undefined>;
   deleteMeeting(id: number): Promise<boolean>;
-  
+
   // Meeting participants methods
-  addMeetingParticipant(participant: InsertMeetingParticipant): Promise<MeetingParticipant>;
+  addMeetingParticipant(
+    participant: InsertMeetingParticipant
+  ): Promise<MeetingParticipant>;
   removeMeetingParticipant(meetingId: number, userId: number): Promise<boolean>;
   getMeetingParticipants(meetingId: number): Promise<User[]>;
 }
@@ -51,49 +80,101 @@ export class DatabaseStorage implements IStorage {
   // User methods
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    return user as User;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user;
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username));
+    return user as User;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user;
+    return user as User;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const result = await db.insert(users).values(insertUser).returning();
+    const [user] = result as User[];
     return user;
   }
 
-  async updateUser(id: number, userData: Partial<Omit<InsertUser, "password">>): Promise<User | undefined> {
+  async updateUser(
+    id: number,
+    userData: Partial<Omit<InsertUser, "password">>
+  ): Promise<User | undefined> {
     const [updatedUser] = await db
       .update(users)
       .set(userData)
       .where(eq(users.id, id))
       .returning();
-    return updatedUser;
+    return updatedUser as User | undefined;
   }
 
+  async updateUserZoomData(
+    userId: number,
+    zoomData: {
+      zoomUserId: string;
+      zoomEmail: string;
+      zoomPmi: number;
+      zoomCreatedAt: Date;
+    }
+  ): Promise<User> {
+    try {
+      const result = await db
+        .update(users)
+        .set({
+          zoomUserId: zoomData.zoomUserId,
+          zoomEmail: zoomData.zoomEmail,
+          zoomPmi: zoomData.zoomPmi,
+          zoomCreatedAt: zoomData.zoomCreatedAt,
+          zoomIntegrationPending: false,
+          zoomIntegrationError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId))
+        .returning();
+
+      if (result.length === 0) {
+        throw new Error("User not found");
+      }
+
+      return result[0];
+    } catch (error) {
+      console.error("Error updating user Zoom data:", error);
+      throw error;
+    }
+  }
   async deleteUser(id: number): Promise<boolean> {
     const result = await db.delete(users).where(eq(users.id, id));
     return true;
   }
 
   async getUsersByCompany(companyId: number): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.companyId, companyId));
+    const result = await db
+      .select()
+      .from(users)
+      .where(eq(users.companyId, companyId));
+    return result as User[];
   }
 
   async getUsersByManager(managerId: number): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.managerId, managerId));
+    const results = await db
+      .select()
+      .from(users)
+      .where(eq(users.managerId, managerId));
+    return results as User[];
   }
 
   // Company methods
   async getCompany(id: number): Promise<Company | undefined> {
-    const [company] = await db.select().from(companies).where(eq(companies.id, id));
+    const [company] = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, id));
     return company;
   }
 
@@ -102,11 +183,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCompany(insertCompany: InsertCompany): Promise<Company> {
-    const [company] = await db.insert(companies).values(insertCompany).returning();
+    const [company] = await db
+      .insert(companies)
+      .values(insertCompany)
+      .returning();
     return company;
   }
 
-  async updateCompany(id: number, companyData: Partial<InsertCompany>): Promise<Company | undefined> {
+  async updateCompany(
+    id: number,
+    companyData: Partial<InsertCompany>
+  ): Promise<Company | undefined> {
     const [updatedCompany] = await db
       .update(companies)
       .set(companyData)
@@ -122,24 +209,24 @@ export class DatabaseStorage implements IStorage {
 
   // Message methods
   async getMessage(id: number): Promise<Message | undefined> {
-    const [message] = await db.select().from(messages).where(eq(messages.id, id));
+    const [message] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, id));
     return message;
   }
 
-  async getMessagesBetweenUsers(user1Id: number, user2Id: number): Promise<Message[]> {
+  async getMessagesBetweenUsers(
+    user1Id: number,
+    user2Id: number
+  ): Promise<Message[]> {
     return await db
       .select()
       .from(messages)
       .where(
         or(
-          and(
-            eq(messages.senderId, user1Id),
-            eq(messages.receiverId, user2Id)
-          ),
-          and(
-            eq(messages.senderId, user2Id),
-            eq(messages.receiverId, user1Id)
-          )
+          and(eq(messages.senderId, user1Id), eq(messages.receiverId, user2Id)),
+          and(eq(messages.senderId, user2Id), eq(messages.receiverId, user1Id))
         )
       )
       .orderBy(asc(messages.createdAt));
@@ -149,17 +236,15 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(messages)
-      .where(
-        or(
-          eq(messages.senderId, userId),
-          eq(messages.receiverId, userId)
-        )
-      )
+      .where(or(eq(messages.senderId, userId), eq(messages.receiverId, userId)))
       .orderBy(desc(messages.createdAt));
   }
 
   async createMessage(insertMessage: InsertMessage): Promise<Message> {
-    const [message] = await db.insert(messages).values(insertMessage).returning();
+    const [message] = await db
+      .insert(messages)
+      .values(insertMessage)
+      .returning();
     return message;
   }
 
@@ -175,7 +260,10 @@ export class DatabaseStorage implements IStorage {
 
   // Meeting methods
   async getMeeting(id: number): Promise<Meeting | undefined> {
-    const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id));
+    const [meeting] = await db
+      .select()
+      .from(meetings)
+      .where(eq(meetings.id, id));
     return meeting;
   }
 
@@ -193,17 +281,17 @@ export class DatabaseStorage implements IStorage {
       .select({ id: meetingParticipants.meetingId })
       .from(meetingParticipants)
       .where(eq(meetingParticipants.userId, userId));
-    
-    const participatedIds = participatedMeetingIds.map(m => m.id);
-    
+
+    const participatedIds = participatedMeetingIds.map((m) => m.id);
+
     return await db
       .select()
       .from(meetings)
       .where(
         or(
           eq(meetings.organizerId, userId),
-          participatedIds.length > 0 
-            ? inArray(meetings.id, participatedIds) 
+          participatedIds.length > 0
+            ? inArray(meetings.id, participatedIds)
             : sql`false`
         )
       )
@@ -211,12 +299,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMeeting(insertMeeting: InsertMeeting): Promise<Meeting> {
-    console.log(insertMeeting)
-    const [meeting] = await db.insert(meetings).values(insertMeeting).returning();
+    console.log(insertMeeting);
+    const [meeting] = await db
+      .insert(meetings)
+      .values(insertMeeting)
+      .returning();
     return meeting;
   }
 
-  async updateMeeting(id: number, meetingData: Partial<InsertMeeting>): Promise<Meeting | undefined> {
+  async updateMeeting(
+    id: number,
+    meetingData: Partial<InsertMeeting>
+  ): Promise<Meeting | undefined> {
     const [updatedMeeting] = await db
       .update(meetings)
       .set(meetingData)
@@ -231,7 +325,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Meeting participants methods
-  async addMeetingParticipant(participant: InsertMeetingParticipant): Promise<MeetingParticipant> {
+  async addMeetingParticipant(
+    participant: InsertMeetingParticipant
+  ): Promise<MeetingParticipant> {
     const [result] = await db
       .insert(meetingParticipants)
       .values(participant)
@@ -239,7 +335,10 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async removeMeetingParticipant(meetingId: number, userId: number): Promise<boolean> {
+  async removeMeetingParticipant(
+    meetingId: number,
+    userId: number
+  ): Promise<boolean> {
     await db
       .delete(meetingParticipants)
       .where(
@@ -256,17 +355,18 @@ export class DatabaseStorage implements IStorage {
       .select({ userId: meetingParticipants.userId })
       .from(meetingParticipants)
       .where(eq(meetingParticipants.meetingId, meetingId));
-    
-    const userIds = participantRecords.map(p => p.userId);
-    
+
+    const userIds = participantRecords.map((p) => p.userId);
+
     if (userIds.length === 0) {
       return [];
     }
-    
-    return await db
+
+    const result = await db
       .select()
       .from(users)
       .where(inArray(users.id, userIds));
+    return result as User[];
   }
 }
 

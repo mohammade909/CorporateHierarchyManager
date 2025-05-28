@@ -61,12 +61,13 @@ export default function MessageDetail({
     [conversation]
   );
 
+
   // Scroll to bottom when new messages are added
   useEffect(() => {
     if (messagesEndRef.current && conversationLength > 0) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [conversationLength, lastMessageId]);
+  }, [conversationLength, lastMessageId, message]);
 
   const handleSendMessage = () => {
     if (message.trim()) {
