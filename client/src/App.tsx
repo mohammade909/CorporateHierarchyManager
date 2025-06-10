@@ -16,6 +16,7 @@ import AppLayout from "@/components/layout/app-layout";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { WebSocketProvider } from "./lib/websocket";
 import { ChatPage } from "./pages/ChatPage";
+import ZoomChat from "./pages/TeamChat";
 
 function PrivateRoute({ component: Component, ...rest }: any) {
   const { user, isLoading } = useAuth();
@@ -68,7 +69,7 @@ function Router() {
       </Route>
       <Route path="/chat">
         <AppLayout>
-          <PrivateRoute component={ChatPage} />
+          <PrivateRoute component={ZoomChat} />
         </AppLayout>
       </Route>
       <Route path="/meetings">

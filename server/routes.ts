@@ -38,6 +38,11 @@ import {
   insertMeetingSchema,
 } from "@shared/schema";
 
+import { ZoomChatController } from './zoomChatController';
+
+const zoomChatController = new ZoomChatController();
+
+
 import ZoomService from "./zoomService";
 
 // Initialize Zoom service
@@ -72,66 +77,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function heartbeat(this: WebSocketClient) {
     this.isAlive = true;
   }
-
-  // User Routes
-  // app.post("/api/auth/register", async (req, res) => {
-  //   try {
-  //     const validatedData = registerSchema.parse(req.body);
-
-  //     // Check if username or email already exists
-  //     const existingUserByUsername = await storage.getUserByUsername(
-  //       validatedData.username
-  //     );
-  //     if (existingUserByUsername) {
-  //       return res.status(400).json({ message: "Username already exists" });
-  //     }
-
-  //     const existingUserByEmail = await storage.getUserByEmail(
-  //       validatedData.email
-  //     );
-  //     if (existingUserByEmail) {
-  //       return res.status(400).json({ message: "Email already exists" });
-  //     }
-
-  //     // Hash password
-  //     const hashedPassword = await hashPassword(validatedData.password);
-
-  //     // Create user
-  //     const user = await storage.createUser({
-  //       ...validatedData,
-  //       password: hashedPassword,
-  //     });
-
-  //     // Generate JWT token
-  //     const token = generateToken({
-  //       id: user.id,
-  //       username: user.username,
-  //       email: user.email,
-  //       role: user.role,
-  //       companyId: user.companyId,
-  //     });
-
-  //     res.status(201).json({
-  //       user: {
-  //         id: user.id,
-  //         username: user.username,
-  //         email: user.email,
-  //         firstName: user.firstName,
-  //         lastName: user.lastName,
-  //         role: user.role,
-  //         companyId: user.companyId,
-  //         managerId: user.managerId,
-  //       },
-  //       token,
-  //     });
-  //   } catch (error) {
-  //     if (error instanceof z.ZodError) {
-  //       return res.status(400).json({ message: error.errors });
-  //     }
-  //     console.error("Registration error:", error);
-  //     res.status(500).json({ message: "Failed to register user" });
-  //   }
-  // });
 
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -248,7 +193,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to register user" });
     }
   });
-
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -367,6 +311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
   app.get("/api/users/:id", authenticateJwt, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
@@ -415,130 +360,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-app.post(
-  "/api/users",
-  authenticateJwt,
-  authorize(["super_admin", "company_admin"]),
-  async (req, res) => {
-    try {
-      // Validate input
-      const validatedData = insertUserSchema.parse(req.body);
-
-      // Add authorization logic
-      const { role, companyId: adminCompanyId } = (req as any).user;
-
-      // If company admin, enforce company id
-      if (role === "company_admin") {
-        if (validatedData.companyId !== adminCompanyId) {
-          return res.status(403).json({
-            message: "Company admin can only add users to their own company",
-          });
-        }
-
-        // Company admins can only create managers or employees
-        if (!["manager", "employee"].includes(validatedData.role as any)) {
-          return res.status(403).json({
-            message:
-              "Company admin can only create manager or employee accounts",
-          });
-        }
-      }
-
-      // Check if username or email already exists
-      const existingUserByUsername = await storage.getUserByUsername(
-        validatedData.username as any
-      );
-      if (existingUserByUsername) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-
-      const existingUserByEmail = await storage.getUserByEmail(
-        validatedData.email as any
-      );
-      if (existingUserByEmail) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
-
-      // Hash password
-      const hashedPassword = await hashPassword(validatedData.password as any);
-
-      // Create user in database
-      const newUserData = {
-        username: validatedData.username,
-        email: validatedData.email,
-        firstName: validatedData.firstName,
-        lastName: validatedData.lastName,
-        password: hashedPassword,
-        role: validatedData.role,
-        companyId: validatedData.companyId || null,
-        managerId: validatedData.managerId || null,
-      };
-
-      const user = await storage.createUser(newUserData as any);
-
-      let zoomUser = null;
-      let zoomError = null;
-
+  app.post(
+    "/api/users",
+    authenticateJwt,
+    authorize(["super_admin", "company_admin"]),
+    async (req, res) => {
       try {
-        // Check if user already exists in Zoom
-        const existingZoomUser = await zoomService.getUserByEmail(
+        // Validate input
+        const validatedData = insertUserSchema.parse(req.body);
+
+        // Add authorization logic
+        const { role, companyId: adminCompanyId } = (req as any).user;
+
+        // If company admin, enforce company id
+        if (role === "company_admin") {
+          if (validatedData.companyId !== adminCompanyId) {
+            return res.status(403).json({
+              message: "Company admin can only add users to their own company",
+            });
+          }
+
+          // Company admins can only create managers or employees
+          if (!["manager", "employee"].includes(validatedData.role as any)) {
+            return res.status(403).json({
+              message:
+                "Company admin can only create manager or employee accounts",
+            });
+          }
+        }
+
+        // Check if username or email already exists
+        const existingUserByUsername = await storage.getUserByUsername(
+          validatedData.username as any
+        );
+        if (existingUserByUsername) {
+          return res.status(400).json({ message: "Username already exists" });
+        }
+
+        const existingUserByEmail = await storage.getUserByEmail(
           validatedData.email as any
         );
-
-        if (existingZoomUser) {
-          // User already exists in Zoom, just link the accounts
-          zoomUser = existingZoomUser;
-          console.log(
-            `User ${validatedData.email} already exists in Zoom, linking accounts`
-          );
-        } else {
-          // Create user in Zoom
-          zoomUser = await zoomService.createUser({
-            email: validatedData.email as any,
-            firstName: validatedData.firstName as any,
-            lastName: validatedData.lastName as any,
-          });
-          console.log(`Created Zoom user for ${validatedData.email}`);
+        if (existingUserByEmail) {
+          return res.status(400).json({ message: "Email already exists" });
         }
 
-        // Update database user with Zoom information
-        await storage.updateUserZoomData(user.id, {
-          zoomUserId: zoomUser.id,
-          zoomEmail: zoomUser.email,
-          zoomPmi: zoomUser.pmi,
-          zoomCreatedAt: new Date(zoomUser.created_at),
-        });
+        // Hash password
+        const hashedPassword = await hashPassword(
+          validatedData.password as any
+        );
+
+        // Create user in database
+        const newUserData = {
+          username: validatedData.username,
+          email: validatedData.email,
+          firstName: validatedData.firstName,
+          lastName: validatedData.lastName,
+          password: hashedPassword,
+          role: validatedData.role,
+          companyId: validatedData.companyId || null,
+          managerId: validatedData.managerId || null,
+        };
+
+        const user = await storage.createUser(newUserData as any);
+
+        let zoomUser = null;
+        let zoomError = null;
+
+        try {
+          // Check if user already exists in Zoom
+          const existingZoomUser = await zoomService.getUserByEmail(
+            validatedData.email as any
+          );
+
+          if (existingZoomUser) {
+            // User already exists in Zoom, just link the accounts
+            zoomUser = existingZoomUser;
+            console.log(
+              `User ${validatedData.email} already exists in Zoom, linking accounts`
+            );
+          } else {
+            // Create user in Zoom
+            zoomUser = await zoomService.createUser({
+              email: validatedData.email as any,
+              firstName: validatedData.firstName as any,
+              lastName: validatedData.lastName as any,
+            });
+            console.log(`Created Zoom user for ${validatedData.email}`);
+          }
+
+          // Update database user with Zoom information
+          await storage.updateUserZoomData(user.id, {
+            zoomUserId: zoomUser.id,
+            zoomEmail: zoomUser.email,
+            zoomPmi: zoomUser.pmi,
+            zoomCreatedAt: new Date(zoomUser.created_at),
+          });
+        } catch (error) {
+          // Log Zoom error but don't fail the user creation
+          console.error("Zoom integration error during user creation:", error);
+          zoomError = "faild";
+        }
+
+        // Remove password from response
+        const { password, ...userWithoutPassword } = user;
+
+        // Prepare response with Zoom data
+        const responseData = {
+          ...userWithoutPassword,
+          zoomUserId: zoomUser?.id || null,
+          zoomEmail: zoomUser?.email || null,
+        };
+
+        // Add warning if Zoom integration failed
+        if (zoomError) {
+          responseData.zoomIntegrationError =
+            "User created successfully, but Zoom integration failed. You can retry later.";
+        }
+
+        res.status(201).json(responseData);
       } catch (error) {
-        // Log Zoom error but don't fail the user creation
-        console.error("Zoom integration error during user creation:", error);
-        zoomError = 'faild';
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ message: error.errors });
+        }
+        console.error("Error creating user:", error);
+        res.status(500).json({ message: "Failed to create user" });
       }
-
-      // Remove password from response
-      const { password, ...userWithoutPassword } = user;
-
-      // Prepare response with Zoom data
-      const responseData = {
-        ...userWithoutPassword,
-        zoomUserId: zoomUser?.id || null,
-        zoomEmail: zoomUser?.email || null,
-      };
-
-      // Add warning if Zoom integration failed
-      if (zoomError) {
-        responseData.zoomIntegrationError = 'User created successfully, but Zoom integration failed. You can retry later.';
-      }
-
-      res.status(201).json(responseData);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: error.errors });
-      }
-      console.error("Error creating user:", error);
-      res.status(500).json({ message: "Failed to create user" });
     }
-  }
-);
+  );
 
   app.put("/api/users/:id", authenticateJwt, async (req, res) => {
     try {
@@ -1790,6 +1738,40 @@ app.post(
       }
     }
   );
+
+
+
+
+
+app.get('/api/v1/channels', zoomChatController.getChannels.bind(zoomChatController));
+app.post('/api/v1/channels', zoomChatController.createChannel.bind(zoomChatController));
+app.patch('/api/v1/channels/:channelId', zoomChatController.updateChannel.bind(zoomChatController));
+
+// Channel member routes
+app.get('/api/v1/channels/:channelId/members', zoomChatController.getChannelMembers.bind(zoomChatController));
+app.post('/api/v1/channels/:channelId/members', zoomChatController.addChannelMembers.bind(zoomChatController));
+app.delete('/api/v1/channels/:channelId/members/:memberId', zoomChatController.removeChannelMember.bind(zoomChatController));
+
+// Message routes
+app.get('/api/v1/messages', zoomChatController.getMessages.bind(zoomChatController));
+app.post('/api/v1/messages', zoomChatController.sendMessage.bind(zoomChatController));
+app.patch('/api/v1/messages/:messageId', zoomChatController.updateMessage.bind(zoomChatController));
+app.delete('/api/v1/messages/:messageId', zoomChatController.deleteMessage.bind(zoomChatController));
+
+// File upload route
+app.post('/api/v1/upload', upload.single('file'), zoomChatController.uploadFile.bind(zoomChatController));
+
+
+
+
+
+
+
+
+
+
+
+
 
   return httpServer;
 }

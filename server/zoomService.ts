@@ -1,5 +1,5 @@
-import axios from 'axios';
-import crypto from 'crypto';
+import axios from "axios";
+import crypto from "crypto";
 
 interface ZoomUser {
   id: string;
@@ -17,7 +17,7 @@ interface ZoomUser {
 }
 
 interface CreateZoomUserRequest {
-  action: 'create';
+  action: "create";
   user_info: {
     email: string;
     type: number;
@@ -28,7 +28,7 @@ interface CreateZoomUserRequest {
 }
 
 class ZoomService {
-  private baseUrl = 'https://api.zoom.us/v2';
+  private baseUrl = "https://api.zoom.us/v2";
   private accountId: string;
   private clientId: string;
   private clientSecret: string;
@@ -36,12 +36,12 @@ class ZoomService {
   private tokenExpiry: number = 0;
 
   constructor() {
-    this.accountId = 'OZWhroVYT0adDjOQOUAZSA'
-    this.clientId = 'E3CvPtiaTQ6397mLt8k9_g';
-    this.clientSecret = 'HEckL1Gx4n2NUUmgisMqnS4RD9hFF5ii';
+    this.accountId = "OZWhroVYT0adDjOQOUAZSA";
+    this.clientId = "eFwvmyl2TcSKNM1iyMTlng";
+    this.clientSecret = "FYldVq4AcTDt9IclIp9eEkuTUc1IPff6";
 
     if (!this.accountId || !this.clientId || !this.clientSecret) {
-      throw new Error('Missing Zoom API credentials in environment variables');
+      throw new Error("Missing Zoom API credentials in environment variables");
     }
   }
 
@@ -55,29 +55,32 @@ class ZoomService {
     }
 
     try {
-      const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-      
+      const credentials = Buffer.from(
+        `${this.clientId}:${this.clientSecret}`
+      ).toString("base64");
+
       const response = await axios.post(
-        'https://zoom.us/oauth/token',
+        "https://zoom.us/oauth/token",
         new URLSearchParams({
-          grant_type: 'account_credentials',
+          grant_type: "account_credentials",
           account_id: this.accountId,
         }),
         {
           headers: {
-            'Authorization': `Basic ${credentials}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: `Basic ${credentials}`,
+            "Content-Type": "application/x-www-form-urlencoded",
           },
         }
       );
 
+      console.log(response.data)
       this.accessToken = response.data.access_token;
-      this.tokenExpiry = Date.now() + (response.data.expires_in * 1000);
-      
+      this.tokenExpiry = Date.now() + response.data.expires_in * 1000;
+
       return this.accessToken || "";
     } catch (error) {
-      console.error('Error getting Zoom access token:', error);
-      throw new Error('Failed to authenticate with Zoom API');
+      console.error("Error getting Zoom access token:", error);
+      throw new Error("Failed to authenticate with Zoom API");
     }
   }
 
@@ -92,9 +95,9 @@ class ZoomService {
   }): Promise<ZoomUser> {
     try {
       const token = await this.getAccessToken();
-      
+     
       const createUserData: CreateZoomUserRequest = {
-        action: 'create',
+        action: "create",
         user_info: {
           email: userData.email,
           type: 1, // Basic user type (1=Basic, 2=Licensed, 3=On-prem)
@@ -113,8 +116,8 @@ class ZoomService {
         createUserData,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
         }
       );
@@ -122,19 +125,73 @@ class ZoomService {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        console.error('Zoom API Error:', error.response?.data);
-        
+        console.error("Zoom API Error:", error.response?.data);
+
         // Handle specific Zoom API errors
         if (error.response?.status === 409) {
-          throw new Error('User already exists in Zoom');
+          throw new Error("User already exists in Zoom");
         } else if (error.response?.status === 400) {
-          throw new Error(`Invalid user data: ${error.response.data.message}`);
+          const errorMessage =
+            error.response.data?.message || "Invalid user data";
+          throw new Error(`Invalid user data: ${errorMessage}`);
+        } else if (
+          error.response?.status === 200 &&
+          error.response.data?.message === "No privilege."
+        ) {
+          // Handle the privilege error specifically
+          throw new Error(
+            "Insufficient privileges: Your Zoom app lacks permission to create users. Please check your app scopes and account permissions."
+          );
+        } else if (error.response?.data?.message === "No privilege.") {
+          throw new Error(
+            "Insufficient privileges: Your Zoom app lacks permission to create users. Please check your app scopes and account permissions."
+          );
         }
       }
-      
-      console.error('Error creating Zoom user:', error);
-      throw new Error('Failed to create Zoom user');
+
+      console.error("Error creating Zoom user:", error);
+      throw new Error("Failed to create Zoom user");
     }
+  }
+
+  // Alternative method: Check privileges before attempting user creation
+  async checkUserCreationPrivileges(): Promise<boolean> {
+    try {
+      const token = await this.getAccessToken();
+
+      // Try to get account info to verify privileges
+      const response = await axios.get(`${this.baseUrl}/accounts/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      // Check if the account has user management privileges
+      return response.data?.plan_type && response.data.plan_type !== "basic";
+    } catch (error) {
+      console.error("Error checking privileges:", error);
+      return false;
+    }
+  }
+
+  // Enhanced createUser method with privilege check
+  async createUserWithPrivilegeCheck(userData: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    password?: string;
+  }): Promise<ZoomUser> {
+    // First check if we have the necessary privileges
+    const hasPrivileges = await this.checkUserCreationPrivileges();
+    if (!hasPrivileges) {
+      throw new Error(
+        "Insufficient privileges: Your Zoom account or app does not have permission to create users. Please upgrade your Zoom plan or check your app configuration."
+      );
+    }
+
+    // Proceed with user creation if privileges are confirmed
+    return this.createUser(userData);
   }
 
   /**
@@ -143,38 +200,39 @@ class ZoomService {
   async getUserByEmail(email: string): Promise<ZoomUser | null> {
     try {
       const token = await this.getAccessToken();
-      
-      const response = await axios.get(
-        `${this.baseUrl}/users/${email}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
+
+      const response = await axios.get(`${this.baseUrl}/users/${email}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         return null; // User not found
       }
-      
-      console.error('Error getting Zoom user:', error);
-      throw new Error('Failed to get Zoom user');
+
+      console.error("Error getting Zoom user:", error);
+      throw new Error("Failed to get Zoom user");
     }
   }
 
   /**
    * Send a chat message between users
    */
-  async sendChatMessage(fromEmail: string, toEmail: string, message: string): Promise<void> {
+  async sendChatMessage(
+    fromEmail: string,
+    toEmail: string,
+    message: string
+  ): Promise<void> {
     try {
       const token = await this.getAccessToken();
-      
+
       // First, get the recipient user's ID
       const toUser = await this.getUserByEmail(toEmail);
       if (!toUser) {
-        throw new Error('Recipient user not found in Zoom');
+        throw new Error("Recipient user not found in Zoom");
       }
 
       const messageData = {
@@ -187,21 +245,25 @@ class ZoomService {
         messageData,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
         }
       );
     } catch (error) {
-      console.error('Error sending Zoom chat message:', error);
-      throw new Error('Failed to send Zoom chat message');
+      console.error("Error sending Zoom chat message:", error);
+      throw new Error("Failed to send Zoom chat message");
     }
   }
 
   /**
    * Update user database with Zoom user ID
    */
-  async updateUserWithZoomData(userId: string, zoomUser: ZoomUser, storage: any): Promise<void> {
+  async updateUserWithZoomData(
+    userId: string,
+    zoomUser: ZoomUser,
+    storage: any
+  ): Promise<void> {
     try {
       await storage.updateUser(userId, {
         zoomUserId: zoomUser.id,
@@ -209,8 +271,8 @@ class ZoomService {
         zoomPmi: zoomUser.pmi,
       });
     } catch (error) {
-      console.error('Error updating user with Zoom data:', error);
-      throw new Error('Failed to update user with Zoom data');
+      console.error("Error updating user with Zoom data:", error);
+      throw new Error("Failed to update user with Zoom data");
     }
   }
 }
